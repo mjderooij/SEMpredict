@@ -1,6 +1,7 @@
 # SEMpredict
 R function for SEM-based prediction rule with examples. 
-as supplementary material to the paper
+
+Supplementary material to the paper
 De Rooij, M., Karch, J.D., Fokkema, M., Bakk, Z., Citra Pratiwi, B., and Kelderman, H. (2021, submitted). SEM-based out-of-sample predictions. 
 
 This repository has:
