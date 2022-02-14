@@ -1,0 +1,164 @@
+---
+output: 
+  pdf_document:
+    citation_package: natbib
+    keep_tex: true
+    fig_caption: true
+    latex_engine: pdflatex
+title: "Prediction with SEM: political democracy example"
+author:
+- name: MdR, JK, MF, ZB, BCP, HK
+  affiliation: Leiden University, Methodology and Statistics Unit
+abstract: ""
+keywords: "SEM-based prediction rule example."
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+geometry: margin=1in
+fontfamily: mathpazo
+fontsize: 11pt
+spacing: double
+bibliography: ~/surfdrive/predictive-psychometrics/paper/predpsycho.bib
+biblio-style: apsr
+endnote: no
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(lavaan)
+library(semPlot)
+setwd("~/surfdrive/Predictive-Psychometrics/paper/SEM-Predictive Validity/versie2/Rcode")
+```
+
+# Intro
+
+We made an R-function for the SEM based prediction rule and in this note we will analyze the \texttt{PoliticalDemocracy} data with this rule. 
+
+```{r}
+source('~/surfdrive/Predictive-Psychometrics/paper/SEM-Predictive Validity/versie2/Rcode/predicty.lavaan.R')
+predicty.lavaan
+```
+
+# Data set
+
+The political democracy data set is the leading data set in lavaan, used for many examples of SEM models.
+
+```{r}
+data(PoliticalDemocracy)
+colnames(PoliticalDemocracy) = c("z1", "z2", "z3", "z4", "y1", "y2", "y3", "y4", "x1", "x2", "x3")
+head(PoliticalDemocracy)
+```
+
+```{r}
+model0 <- '
+  # latent variable definitions
+  ind60 =~ x1 + x2 + x3
+  dem60 =~ z1 + z2 + z3 + z4
+  dem65 =~ y1 + y2 + y3 + y4
+  # regressions
+  dem60 ~ ind60
+  dem65 ~ ind60 + dem60
+  # residual correlations
+  z1 ~~ y1
+  z2 ~~ z4 + y2
+  z3 ~~ y3
+  z4 ~~ y4
+  y2 ~~ y4
+'
+
+fit <- sem(model0, data = PoliticalDemocracy, meanstructure = TRUE, warn = FALSE)
+semPaths(fit, title = FALSE, intercepts = FALSE, residuals = FALSE)
+```
+
+# Repeated 10 fold CV for varying models
+
+With the following code we define five different SEM models for predicting the response variables, that are, the indicators for democracy in 1965. 
+
+In sum, we define the following modelling and prediction approaches:
+\begin{enumerate}
+\item[1.] On the training set we fit the model as defined by Figure \ref{fig:fig2}. For prediction in the test sample we use variables $x_1, x_2, x_3$ and $z_1, z_2, z_3, z_4$ as predictors and $y_1, y_2, y_3, y_4$ as outcomes;
+\item[5.] A multivariate linear regression model with $x_1, x_2, x_3$ and $z_1, z_2, z_3, z_4$ as predictor variables and $y_1, y_2, y_3, y_4$ as response variables. For prediction in the test sample we use variables $x_1, x_2, x_3$ and $z_1, z_2, z_3, z_4$ as predictors and $y_1, y_2, y_3, y_4$ as outcomes;
+\end{enumerate}
+
+With the following code we define our five structural equation models:
+```{r}
+model <- '
+  # latent variable definitions
+  ind60 =~ x1 + x2 + x3
+  dem60 =~ z1 + z2 + z3 + z4
+  dem65 =~ y1 + y2 + y3 + y4
+  # regressions
+  dem60 ~ ind60
+  dem65 ~ ind60 + dem60
+  # residual correlations
+  z1 ~~ y1
+  z2 ~~ z4 + y2
+  z3 ~~ y3
+  z4 ~~ y4
+  y2 ~~ y4
+'
+```
+
+
+We perform 100 repetitions of 10 fold cross validation and compare the overall prediction error of the models. We also add a simple multivariate multiple linear regression. We focus on the cross-validated prediction error. 
+
+```{r, warning = FALSE}
+xnames = colnames(PoliticalDemocracy)[-c(5,6,7,8)]
+ynames = colnames(PoliticalDemocracy)[c(5,6,7,8)]
+
+set.seed(1234)
+repeats = 100
+PE = data.frame(repetition = rep(1:repeats, each = 2), 
+                model = rep(1:2, repeats), 
+                pe = rep(0, 2 * repeats))
+
+folds = rep(1:10, length.out = 75)
+t = 0
+for (r in 1:repeats){
+  yhat1 = yhat2 = matrix(NA, 75, 4)
+  folds = sample(folds)
+  for(k in 1:10){
+    t = t + 1
+    idx = which(folds == k)
+    # SEM approach 
+    fit <- sem(model, data = PoliticalDemocracy[-idx, ], meanstructure = TRUE, warn = FALSE)
+    yhat1[idx, ] = predicty.lavaan(fit, newdata = PoliticalDemocracy[idx, ], xnames = xnames, ynames = ynames)
+
+    # linear regression model
+    fit = lm(cbind(y1,y2,y3,y4) ~ ., data = PoliticalDemocracy[-idx, ])
+    yhat2[idx, ]= predict(fit, newdata = PoliticalDemocracy[idx, ])
+  }# end folds
+
+  pe1 = sqrt(sum((PoliticalDemocracy[, ynames] - yhat1)^2)/300)
+  pe2 = sqrt(sum((PoliticalDemocracy[, ynames] - yhat2)^2)/300)
+  PE$pe[((r-1)*2 + 1): (r*2)] = c(pe1, pe2)
+} # end repetitions
+
+save(PE, file = "xvalpoldem.Rdata")
+#save(coefs1, coefs2, coefs3, coefs4, coefs5, file = "xvalpoldemcoefs.Rdata")
+```
+
+
+We can make prediction error boxplots for the different approaches
+```{r}
+library(ggplot2)
+PE$model = as.factor(PE$model)
+
+
+p <- ggplot(PE, aes(x=model, y=pe, fill=factor(model))) +
+      geom_boxplot(aes(group = factor(model))) + 
+      geom_jitter(width = 0.05, height = 0, colour = rgb(0,0,0,.3)) + 
+      xlab("Approach") + ylab("RMSEp") + 
+      theme(legend.position="none") +
+      scale_fill_grey(start=.3,end=.7)
+
+p
+ggsave('~/surfdrive/Predictive-Psychometrics/paper/SEM-Predictive Validity/versie2/Figures/Poldemxval.pdf', plot = p)
+
+```
+
+We can check the number of wins for each of the five approaches:
+```{r}
+pe = cbind(PE[PE$model == 0, 3], PE[PE$model == 1, 3], PE[PE$model == 2, 3], PE[PE$model == 3, 3], PE[PE$model == 4, 3], PE[PE$model == 5, 3])
+table(apply(pe, 1, which.min))
+```
+
